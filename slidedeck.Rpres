@@ -1,0 +1,131 @@
+Yelp Challenge Project
+========================================================
+## Review Rating Prediction
+Author: David Álvarez Pons
+
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(
+    fig.width=3, 
+    fig.height=3, 
+    message=FALSE, 
+    warning=FALSE,
+    eval=FALSE
+)
+```
+
+========================================================
+
+## Yelp Challenge data description
+
+The Yelp company gathers reviews from users attending to restaurants, clinics and other services.
+
+Each review contains a star rating that is given by a user to the rated business.
+
+## Project description
+
+Can we predict the rating of a review looking at its text?
+
+We present the implementation of **a prediction function for star-rating based on machine learning**
+
+Exploratory analysis
+========================================================
+
+The data used for this project is available [here](https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/yelp_dataset_challenge_academic_dataset.zip):
+
+```{r reading_reviews, echo=FALSE, eval=TRUE, cache=TRUE}
+review <- readRDS("data/review.rds")
+```
+
+```{r ggplot2_library, eval=TRUE, echo=FALSE, message=FALSE, warning=FALSE}
+library(ggplot2)
+```
+
+```{r unlist_texts, eval=TRUE, echo=FALSE, cache=TRUE}
+texts <- unlist(review[,"text"])
+textLengths <- nchar(texts)
+```
+
+```{r unlist_stars, eval=TRUE, echo=FALSE, cache=TRUE}
+stars <- unlist(review[,"stars"])
+```
+
+```{r factorize, eval=TRUE, echo=FALSE, cache=TRUE}
+fs <- factor(stars)
+lt <- log(textLengths)
+```
+
+```{r text_length-vs-star_rating, eval=TRUE, echo=FALSE, cache=TRUE, fig.height=4, fig.width=6, fig.align="center"}
+m <- qplot(fs, lt, geom = "boxplot", fill=fs)
+g <- m + labs(title = "Boxplot of text lengths vs star rates")
+g + xlab("Star Rate") + ylab("Length of text review")
+```
+
+```{r correlation_textlen-stars, eval=TRUE, cache=TRUE}
+ct <- cor.test(log(textLengths), stars)
+```
+
+Since the p-value of the correlation test is `r ct$p.value`, there is no relation between text length and rating. 
+
+Prediction modelling
+========================================================
+
+1. Split texts into sentences. 
+2. Clean stopwords, numbers, punctuation, word sufixes and sort words without duplicates. 
+3. Count words + sentence rating.
+4. Prediction of a sentence is a weighted sum: 
+
+```{r read_words, echo=FALSE, eval=TRUE, cache=TRUE}
+words <- readRDS("data/training_words.rds");
+```
+
+```{r words_semantic, eval=TRUE, echo=FALSE, cache=TRUE}
+rbind(
+    head(words[words$avg.stars > 1.00 & words$avg.stars < 1.2,], 2),
+    head(words[words$avg.stars > 4.2 & words$avg.stars < 5.0,], 2)
+)
+```
+
+$$predict(sent) \gets \frac{\sum_{w\in sent}w.count * w.avgStars}{\sum_{w \in sent} w.count}$$
+
+Results and Discussion
+========================================================
+
+
+```{r get_normalized_reviews, echo=FALSE, results='hide', eval=TRUE, cache=TRUE}
+nsent <- readRDS("data/normalized.rds"); # Normalized Sentences
+```
+
+```{r caret_package, eval=TRUE, echo=FALSE}
+library(caret)
+```
+
+```{r data_partition, echo=FALSE, eval=TRUE, cache=TRUE}
+set.seed(4587);
+inTrain = createDataPartition(nsent$stars, p = 3/4)[[1]]
+training = nsent[ inTrain,]
+testing = nsent[-inTrain,]
+```
+
+```{r load_testing_predictions, echo=FALSE, eval=TRUE, cache=TRUE}
+preds <- readRDS("data/testing_predictions.rds");
+```
+
+```{r error_reporting, echo=FALSE, eval=TRUE, cache=TRUE}
+errors <- preds - as.numeric(testing$stars)
+rmse <- sqrt(sum(errors^2) / length(preds))
+```
+
+Predictions errors have $\mu$ = `r mean(errors)` and $\sigma$=`r sd(errors)`.  
+RSME is `r rmse`.  
+Prediction model tends to be *too optimistic*.
+
+```{r error_histogram, eval=TRUE, echo=FALSE, cache=TRUE, fig.height=4, fig.width=6, fig.align="center"}
+m <- qplot(errors, geom="histogram", binwidth=0.7, fill=..count..)
+g <- m + labs(title = "Histogram of prediction - testing errors")
+g + scale_fill_gradient("count", low = "green", high = "red")
+```
+
+**Improvements**: gather sets of words, cross validation, `tm` package, etc.
+
+<small>For further info, click [here](https://github.com/davizuku/datascience-capstone)</small>
+
