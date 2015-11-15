@@ -22,7 +22,7 @@ The Yelp company gathers reviews from users attending to restaurants, clinics an
 This project presents a first approach of the implementation of **a prediction function for star-rating in reviews based on learning from words in the existing rated reviews**. In the first section, we will present how to obtain the data we used for this project as well as a description of all the phases the data has passed through to reach the final model, including data preprocessing, exploratory analysis, cleaning data and prediction modeling. After that, we will present, summarize and interpret the results obtained as well as the errors of the prediction model. Finally, we will present a brief discussion of the project results and methodology. 
 
 
-This report intends to be as brief as possible, as well as a reference for reproducible research. That is why, we provide the main explanations in this report, but code chunks and detailed information in the Appendix available [here](). Reading the Appendix is no essential to understand the main process followed in this project. For even deeper information, please, refer to this repository: https://github.com/davizuku/datascience-capstone.
+This report intends to be as brief as possible, as well as a reference for reproducible research. That is why, we provide the main explanations in this report, but code chunks and detailed information in the Appendix available [here](https://github.com/davizuku/datascience-capstone/raw/master/appendix.pdf). Reading the Appendix is no essential to understand the main process followed in this project. For even deeper information, please, refer to this repository: https://github.com/davizuku/datascience-capstone.
 
 #Methods and Data
 
