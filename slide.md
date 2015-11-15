@@ -12,7 +12,7 @@ knit        : slidify::knit2slides
 --- 
 # Yelp Challenge Project
 ## Review Rating Prediction
-Author: *David Álvarez*
+Author: *David Álvarez Pons*
 
 
 
