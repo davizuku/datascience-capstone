@@ -1,0 +1,681 @@
+---
+title: "Data Science Capstone Project"
+author: "David Álvarez Pons"
+output: pdf_document
+---
+
+#Abstract
+
+This project presents a first approach of the implementation of a prediction function for star-rating in reviews based on learning from words in the existing rated reviews. In the first section, we will present how to obtain the date we used for this project as well as how we formatted to be ready for the next sections. After that, we describe the exploratory analysis taken to get some knowledge of the downloaded data. Then, we clean and preprocess the data to be ready for the implementation of the prediction function. The next step is building the prediction model using a fraction of the data (`training` set) and testing the model with the rest (`testing` set). Finally, we present the obtained results and conclusions. 
+
+#Introduction
+
+The Yelp company gathers reviews from users attending to restaurants, clinics and other services. Each review contains a star rating that is given by a user to the business rated. Combining all the ratings of the users gives a total rate of each business. The rating is given by the users and, in theory, it is based on the text of the review. Asking for a rating to a user that has already written a review is asking for duplicate information and storing duplicate information as well. Therefore, can we infer the rating of a review looking at the text written by the user and other meta data such as location, date, etc.?
+
+#Getting and Formatting Data
+
+##Downloading
+
+We get the data from the URL provided by the Data Science Capstone Project course: https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/yelp_dataset_challenge_academic_dataset.zip 
+
+```{r downloading_data, cache=TRUE}
+downloadFolderName <- "downloads"
+fileName <- "dataset.zip"
+filePath <- paste(downloadFolderName, fileName, sep="/")
+dataUrl <- "https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/yelp_dataset_challenge_academic_dataset.zip"
+
+if (!file.exists("downloads")){
+    dir.create(downloadFolderName)
+    download.file(dataUrl, destfile = filePath, method="curl");
+}
+dir(downloadFolderName)
+```
+
+
+##Extracting
+
+Before processing data, we need to extract the contents from the file we have downloaded in the previous section.
+
+```{r extracting_data, cache=TRUE}
+if (length(dir(downloadFolderName)) < 2){
+	unzip(filePath, exdir = downloadFolderName)
+}
+dir(downloadFolderName)
+```
+
+
+##Formatting
+
+After extracting the data, and due the size of the files, we will convert those files into RDS files to improve the speed of the future readings. In addition, we will perform a conversion form the JSON format into R lists. 
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+library(jsonlite)
+```
+
+```{r reading_json_files, cache=TRUE}
+jsonFiles <- lapply(dir("downloads/yelp_dataset_challenge_academic_dataset/", "*.json", full.names = TRUE), function(file){
+    readLines(file)
+})
+```
+
+At this point `jsonFiles` is a list of $n$ character vectors each containing $m_i$ json strings, where $n$ is the number of json files read and $m_i$ is the number of records (lines) that the $i^{th}$ file has. 
+
+```{r converting_to_list, cache=TRUE}
+listFiles <- lapply(jsonFiles, function(fileType){
+    t(sapply(fileType, function(jsonFile){
+        fromJSON(jsonFile, flatten = TRUE)
+    }, USE.NAMES = FALSE))
+})
+```
+
+Once split the JSON strings into lists, it is time to save them as RDS for future loadings. 
+
+```{r rds_saving, cache=TRUE, results="hide"}
+dataFolderName <- "data"
+if (!file.exists(dataFolderName)){
+    dir.create(dataFolderName)
+    sapply(listFiles, function(listFile){
+        fileName <- paste0(listFile[1,]$type, ".rds")
+        filePath <- paste(dataFolderName, fileName, sep="/")
+        saveRDS(listFile, file = filePath)
+    })
+}
+```
+
+
+##Reading
+
+Now we have available the data files in RDS format.
+
+```{r ls_rds, cache=TRUE}
+dir(dataFolderName)
+```
+
+Having the data in this format allows us to read it easily and faster using the command `readRDS("data/name_of_file.rds")`. Next, we provide an example of the improvement of the reading performance with the conversion from plane .json files to .rds files. 
+
+```{r reading_tip_json, cache=TRUE}
+jsonFile <- "downloads/yelp_dataset_challenge_academic_dataset/yelp_academic_dataset_review.json"
+system.time(reviewsJSON <- readLines(jsonFile))
+length(reviewsJSON)
+```
+
+```{r reading_checkin_rds, cache=TRUE}
+rdsFile <- "data/review.rds"
+system.time(reviewsRDS <- readRDS(rdsFile))
+nrow(reviewsRDS);
+```
+
+Not only we have an improvement on the reading time, but also the data obtained is already structured into list elements. 
+
+#Exploratory Analysis
+
+Data is split in several files, but the information is linked using ids. For example, the `business` dataset has a property called `business_id` that identifies uniquely the business. At the same time, the `review`, `checkin` and `tip` datasets reference the business by the same `business_id` property. 
+
+Let's use this connection to make a simple count of how many reviews has each of $n$ businesses chosen at random from the whole `business` dataset. We will compare the computed count with the existing field `review_count`.
+
+```{r counting_reviews, cache=TRUE}
+review <- readRDS("data/review.rds")
+business <- readRDS("data/business.rds")
+
+nb <- nrow(business)
+set.seed(9382)
+bi <- sample.int(nb, 10)
+table <- t(sapply(bi, function(index){
+    biz <- business[index,]
+    comp_count <- sum(unlist(review[, "business_id"]) == biz$business_id)
+    c(
+        biz$business_id, 
+        biz$review_count,
+        comp_count
+    )
+}))
+colnames(table) <- c("business_id", "review_count", "comp_count")
+table
+```
+
+
+##Problem statement
+
+The problem that we would like to solve with the data set is the prediction of the review star rating using the available data related to the review, mainly the free text field. A first approach would consist on text mining the free text field of the reviews to struct the information provided by users and use it to build a prediction function to infer the star rating of a review. Using this function has the advantages of unifying criteria and saving the assigned space for ratings, both useful for the yelp company and the user's experience. 
+
+Since we want to predict the star rating of the reviews, let's have a look at its distribution by a simple histogram.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+library(ggplot2)
+```
+
+```{r star_histogram, echo=FALSE, cache=TRUE}
+stars <- unlist(review[,"stars"])
+m <- qplot(stars, geom="histogram", binwidth=0.5, fill=..count..)
+g <- m + labs(title = "Histogram of reviews' star rating")
+g + scale_fill_gradient("count", low = "green", high = "red")
+```
+
+At a first view, we can see a deviated distribution to the highest ratings.
+
+Let's also have a naive look at the relationship between the star rating and the length of the review text. 
+
+```{r text_length-vs-star_rating, echo=FALSE, cache=TRUE}
+texts <- unlist(review[,"text"])
+textLengths <- nchar(texts)
+m <- qplot(factor(stars), log(textLengths), geom = "boxplot", fill=factor(stars))
+g <- m + labs(title = "Boxplot of text lengths vs star rates")
+g + xlab("Star Rate") + ylab("Length of text review")
+```
+
+We observe a slight trend towards a better rating as the text length decreases. However it seems negligible. Let's make a hypothesis test under $H_0 : cor = 0$. 
+
+```{r correlation_textlen-stars, cache=TRUE}
+cor.test(log(textLengths), stars)
+```
+
+However, it is not representative enough, since the small p-value leads to reject the alternative hypothesis: $H_\alpha : cor\neq0$.
+
+#Cleaning and Preprocessing data
+
+In this section we will format and clean the data so we can apply prediction algorithms easily on them. The transformations on the data will include feature selection, data structuring and other text mining techniques. 
+
+##Feature selection
+
+In this section we will merge some features of the `review` and `business` data sets into one single `data.frame`. Following we present the functions to merge both datasets. 
+
+```{r feature_selection_functions}
+getBusiness <- function(business_id){
+    indexes <- unlist(business[,"business_id"]) == business_id;
+    business[indexes,]
+}
+
+buildDataReviewBusiness <- function(business_ids){
+    sapply(business_ids, function(bi){
+        biz <- getBusiness(bi)
+        c(biz$name, biz$city, biz$state, biz$open, biz$latitude, biz$longitude)
+    }, USE.NAMES = FALSE)
+}
+
+buildDataReview <- function(reviews){
+    biz.data <- buildDataReviewBusiness(unlist(reviews[,"business_id"]))
+    
+    data.frame(
+        review_id = unlist(reviews[,"review_id"]),
+        business_id = unlist(reviews[,"business_id"]),
+        business_name = biz.data[1,],
+        business_latitude = biz.data[5,],
+        business_longitude = biz.data[6,],
+        business_city = biz.data[2,],
+        business_state = biz.data[3,],
+        business_open = biz.data[4,],
+        user_id = unlist(reviews[,"user_id"]),
+        date = unlist(reviews[,"date"]),
+        votes_funny = sapply(reviews[,"votes"], function(v) v$funny),
+        votes_useful = sapply(reviews[,"votes"], function(v) v$useful),
+        votes_cool = sapply(reviews[,"votes"], function(v) v$cool),
+        text = unlist(reviews[,"text"]),
+        stars = unlist(reviews[,"stars"]),
+        stringsAsFactors = FALSE
+    )
+}
+```
+
+Now we apply the functions to the whole review dataset and then save the resulting `data.frame` to a file in the hard disk. 
+
+```{r feature_selection, cache=TRUE}
+dsReview <- buildDataReview(review)
+saveRDS(dsReview, file = "data/features.rds")
+```
+
+This is the dataset we have just saved. 
+
+```{r str_dsreview, echo=FALSE, cache=TRUE}
+str(dsReview)
+```
+
+##Text mining
+
+Once we have selected the features, it is time to process the text of the reviews. For that we will use the `tm` and `wordnet` packages. The second package requires an additional database to be downloaded and installed. 
+
+###Configuring WordNet database
+
+We will download the database from the corresponding web page  https://wordnet.princeton.edu/wordnet/download/
+
+```{r download_wordnet, cache=TRUE}
+wordnetUrl <- "http://wordnetcode.princeton.edu/wn3.1.dict.tar.gz"
+dbWordnetFile <- "downloads/wordnet.dict.tar.gz"
+
+if (!file.exists(dbWordnetFile)){
+    download.file(wordnetUrl, destfile = dbWordnetFile, method="curl");
+}
+dir("downloads")
+```
+
+Now we extract the downloaded `tar.gz` into the `data` folder. 
+
+```{r extracting_wordnet, cache=TRUE}
+wordnetDir <- "data/Wordnet-3.1"
+untar(dbWordnetFile, exdir = wordnetDir)
+```
+
+Finally, we need to set up an environment variable so the library knows where to find the data. 
+
+```{r environment_variable_wordnet}
+Sys.setenv(WNHOME = wordnetDir);
+```
+
+###Data transformations
+
+Now we have the environment correctly set up, we can start the loading of the data into the libraries. 
+
+```{r text_mining_libraries, echo=FALSE, message=FALSE, warning=FALSE}
+library(tm)
+library(wordnet)
+library(openNLP)
+library(SnowballC)
+```
+
+Using this packages we will create a preprocessing function for a given data set. Then we will be able to apply that function to the training or testing data set when generating the prediction algorithm. 
+
+First, we will split the text of each review into its sentences with the help of the `openNLP` package. Then, we will transform each sentence by using the tools of the `tm`, `wordnet` and `SnowballC` first by deleting stopwords and then replacing each word by the first synonym given by the function `synonyms(...)`. This way we will *normalize* the texts of the reviews. For doing so, we need to create some objects that will allow us to perform the above mentioned actions.
+
+```{r annotators_creation}
+sent_token_annotator <- Maxent_Sent_Token_Annotator()
+word_token_annotator <- Maxent_Word_Token_Annotator()
+pos_tag_annotator <- Maxent_POS_Tag_Annotator()
+```
+
+```{r convert_text_to_sentences}
+convert_text_to_sentences <- function(text, lang = "en") {
+    # Convert text to class String from package NLP
+    text <- as.String(text)
+    # Sentence boundaries in text
+    sentence.boundaries <- annotate(text, sent_token_annotator)
+    # Extract sentences
+    sentences <- text[sentence.boundaries]
+    # return sentences
+    return(as.character(sentences))
+}
+
+splitReviewsIntoSentences <- function(reviews){
+    result <- data.frame();
+    apply(reviews, 1, function(review){
+        sentences <- convert_text_to_sentences(review["text"])
+        nSent <- length(sentences)
+        result <<- rbind(
+            result,
+            data.frame(
+                review_id = rep(review["review_id"], nSent),
+                business_id = rep(review["business_id"], nSent),
+                business_name = rep(review["business_name"], nSent),
+                business_latitude = rep(review["business_latitude"], nSent),
+                business_longitude = rep(review["business_longitude"], nSent),
+                business_city = rep(review["business_city"], nSent),
+                business_state = rep(review["business_state"], nSent),
+                business_open = rep(review["business_open"], nSent),
+                user_id = rep(review["user_id"], nSent),
+                date = rep(review["date"], nSent),
+                votes_funny = rep(review["votes_funny"], nSent),
+                votes_useful = rep(review["votes_useful"], nSent),
+                votes_cool = rep(review["votes_cool"], nSent),
+                text = sentences,
+                stars = rep(review["stars"], nSent),
+                stringsAsFactors = FALSE
+            )
+        )
+        remove(sentences)
+    })
+    rownames(result) <- NULL
+    result
+}
+```
+
+Due to the increasing amount of complexity and the exponentially increase in size, in order to keep execution times affordable, we have decided to choose a subset of the reviews selecting randomly a 2% of the businesses, resulting in a total of ~30k reviews.
+
+```{r subsetting_reviews, cache=TRUE }
+nBiz <- length(unlist(business[,"business_id"]))
+set.seed(1234); 
+subsetBusiness <- sample(unlist(business[,"business_id"]), nBiz * 0.02)
+subsetReviews <- dsReview[dsReview$business_id %in% subsetBusiness,]
+saveRDS(subsetReviews, file="data/subset_features.rds")
+nrow(subsetReviews)
+```
+
+After that, we will perform the transformations on this reduced data set:
+
+```{r split_into_sentences, cache=TRUE}
+reviewSentences <- splitReviewsIntoSentences(subsetReviews)
+saveRDS(reviewSentences, file = "data/sentences.rds")
+```
+
+Let's see how the texts have changed.
+
+``` {r str_reviewSentences, cache=TRUE}
+str(reviewSentences) 
+```
+
+Finally, the last step will be to *normalize* all the sentences by performing clean ups and substitutions by synonyms.
+
+```{r normalize_function}
+tagPOS <- function(x) {
+    if (nchar(x) == 0) return("")
+    y1 <- annotate(x, list(sent_token_annotator, word_token_annotator))
+    y2 <- annotate(x, pos_tag_annotator, y1)
+    y2w <- subset(y2, type == "word")
+    tags <- sapply(y2w$features, '[[', "POS")
+    r1 <- sprintf("%s/%s", unlist(strsplit(x, " ")), tags)
+    r2 <- paste(r1, collapse = " ")
+    return(r2)
+}
+
+# List of openNLP tags: http://www.ling.upenn.edu/courses/Fall_2003/ling001/penn_treebank_pos.html
+tagOpenNlpToWordnet <- function(tag) {
+    t <- strtrim(tag, 1)
+    res <- tag
+    if (t == "N") res <- "NOUN"
+    if (t == "J") res <- "ADJECTIVE"
+    if (t == "R") res <- "ADVERB"
+    if (t == "V") res <- "VERB"
+    res
+}
+
+findSynonyms <- function(x){
+    paste(sapply(unlist(strsplit(x, " ")), function(token){
+        tVec <- unlist(strsplit(token, "/"))
+        word <- tVec[1]
+        pos <- tagOpenNlpToWordnet(tVec[2])
+        synonym <- tryCatch(
+            {
+                syns <- c(synonyms(wordStem(word), pos))
+                if (length(syns) == 0) synonym <- word
+                else tolower(syns[1])
+            },
+            error = function(e){word}
+        )
+        remove(tVec, word, pos);
+    }), collapse = " ")
+}
+
+trim <- function (x) gsub("^\\s+|\\s+$", "", x)
+
+getOrderedUniqueWordsInSentence <- function(sentence){
+    paste(sort(unique(unlist(strsplit(sentence, " ")))), collapse = " ")
+}
+
+normalizeSentences <- function(sentences){
+    txt <- sentences
+    txt <- tolower(txt)
+    txt <- removeNumbers(txt)
+    txt <- removeWords(txt, stopwords("english"))
+    txt <- removePunctuation(txt)
+    txt <- stemDocument(txt)
+    txt <- trim(stripWhitespace(txt))
+    #txt <- sapply(txt, tagPOS, USE.NAMES = FALSE)
+    #txt <- sapply(txt, findSynonyms, USE.NAMES = FALSE)
+    txt <- sapply(txt, getOrderedUniqueWordsInSentence, USE.NAMES = FALSE)
+    txt
+}
+```
+
+As the last step, we apply the function to every sentence in the dataset. 
+
+```{r normalize_sentences, cache=TRUE}
+reviewNormalized <- reviewSentences
+reviewNormalized$text <- normalizeSentences(reviewSentences$text)
+saveRDS(reviewNormalized, file = "data/normalized.rds")
+```
+
+These functions have been applied to the data set and stored in files in the hard disk for future uses.
+
+#Prediction Model
+
+```{r caret_library, echo=FALSE, message=FALSE, warning=FALSE}
+library(caret)
+library(plyr)
+```
+
+After all the preprocessing functions, we have a data set with normalized data: 
+
+```{r get_normalized_reviews, cache=TRUE}
+nsent <- readRDS("data/normalized.rds"); # Normalized Sentences
+str(nsent)
+```
+
+This data set consists of a table with rows containing normalized or *hashed* sentences, the *star rating* and other *meta data* relative to the business and original review. 
+
+In the preprocessing stage we accomplish to map similar sentences to the same value, first splitting reviews into sentences and then *normalizing* them. 
+
+Let's compare how the number of duplicated items has increased. 
+
+```{r comparison, cache=TRUE}
+c(
+    sum(duplicated(dsReview$text)),
+    sum(duplicated(reviewSentences$text)),
+    sum(duplicated(reviewNormalized$text))
+)
+```
+
+This will help the prediction function to map a sentence to a star rating. Then, we will use this mapping to build another function that will predict the final rating of a single review from all the estimated ratings of its sentences. 
+
+##Dataset partition
+
+Before building any kind of prediction model, first we have to split the data into `training` and `testing` sets in a ratio of 25-75%. 
+
+```{r data_partition, cache=TRUE}
+set.seed(4587);
+inTrain = createDataPartition(nsent$stars, p = 3/4)[[1]]
+training = nsent[ inTrain,]
+testing = nsent[-inTrain,]
+```
+
+
+##Sentence rating prediction
+
+Although the ratings of reviews can be considered as 5 categories, we will face this part of the problem as a regression model. Lately we will treat numerically the ratings of the sentences and having more flexibility will likely make the final prediction algorithm perform better.
+
+```{r sentence_prediction_training, cache=TRUE}
+countWordsStars <- function(data, groupInterval){
+    words <- data.frame();
+    count <- 0;
+    apply(data, 1, function(row){
+        count <<- count + 1;
+        ws <- unlist(strsplit(row["text"], " "));
+        words <<- rbind(
+            words, 
+            data.frame(
+                word = ws, 
+                count = rep(1, length(ws)), 
+                stars = rep(as.numeric(row["stars"]), length(ws))
+            )    
+        )
+        remove(ws)
+        if (count %% groupInterval == 0){
+            d0 <- dim(words);
+            words <<- ddply(words, ~word, summarize, count=sum(count), stars=sum(stars))
+            d1 <- dim(words)
+            print(paste(count, "rows", "reduced from", d0[1], "to", d1[1]));
+        }
+    })
+    rownames(words) <- NULL
+    words
+}
+```
+
+```{r word_counting, eval=FALSE}
+words <- countWordsStars(training, 1000)
+words <- ddply(words, ~word, summarize, count=sum(count), stars=sum(stars))
+words <- mutate(words, avg.stars = stars / count)
+saveRDS(words, "data/training_words.rds")
+```
+
+```{r loading_cleaning_words, cache=TRUE}
+words <- readRDS("data/training_words.rds")
+words$word <- as.character(words$word)
+toRemove <- words$avg.stars == 5.0 & nchar(words$word) > 20 & words$count == 1;
+words <- words[!toRemove,]
+saveRDS(words, "data/training_words.rds")
+```
+
+We have extracted a kind of *semantinc* information of each of the words:  
+1. The number of appearances.  
+2. The total sum of stars that the have received.   
+
+With this information we can have an approximation of what impact has each word in a rating as shown in this example: 
+
+```{r words_semantic, cache=TRUE}
+rbind(
+    head(words[words$avg.stars > 1.0 & words$avg.stars < 1.2,]),
+    head(words[words$avg.stars > 4.0 & words$avg.stars < 5.0,])
+)
+```
+
+Now it is time to create the prediction function for a given sentence using the data stored in the `words` dataset.
+
+```{r prediction_function}
+predictSentence <- function(sentence){
+    data <- words[words$word %in% unlist(strsplit(sentence, " ")),]
+    totalCount <- sum(data$count);
+    sum((data$count / totalCount) * data$avg.stars)
+}
+
+predictDataset <- function(dataset){
+    sapply(dataset$text, function(sentence){
+        predictSentence(as.character(sentence))
+    })
+}
+```
+
+Let's apply the prediction function on the test dataset.
+
+```{r testing_model, cache=TRUE}
+pred <- predictDataset(testing)
+saveRDS(pred, "data/testing_predictions.rds")
+```
+
+Finally we compute the Root Mean Squared Errors on the predictions: 
+
+```{r error_reporting, cache=TRUE}
+nPred <- length(pred); 
+errors <- pred - as.numeric(testing$stars)
+summary(errors)
+rmse <- sqrt(sum(errors^2) / nPred)
+rmse
+```
+
+From the error reports obtained we observe that the prediction function is a bit too positive in predicting the ratings. That is, it is very difficult to obtain lower ratings than higher ones. The following figure represents this positivity.
+
+```{r error_histogram, echo=FALSE, cache=TRUE}
+m <- qplot(errors, geom="histogram", binwidth=0.7, fill=..count..)
+g <- m + labs(title = "Histogram of prediction - testing errors")
+g + scale_fill_gradient("count", low = "green", high = "red")
+```
+
+# Conclusion and further work
+
+We have tried to predict the ratings of the review by using a naive count-based approach. First, we have split the reviews into sentences in order to treat each sentence separately. However, the first intend of using synonyms for the words was not affordable due to the huge execution time that would have been required for this computation. Instead, we have chosen to use single word counting and average the stars assigned to the review that contained each word to get a sense of the influence that each word has in the rating of the review. Combining this influences in a weighted sum gives our prediction function, which does not have a bad error, but can be improved quite a bit. 
+
+Other approaches that we could not take were the following:  
+ 1. Consider using synonyms in words so each word is *hashed* to its first synonym, getting a more uniform set of words and a better relationship of word - rating.  
+ 2. Consider gathering sets of two words, three words, etc. into the prediction function. This way combinations such as `don't like` can be associated to a negative value, instead of having `don't` and `like` as a separated words. 
+ 3. Deriving from the previous consideration appears the idea of hashing sentences using synonyms and ordering of words.  
+ 4. We have not exploited all the benefits of using the `tm` library. Creating a Corpus would have allowed us to reach further levels of analysis in Text Mining.  
+ 5. Consider using other meta data e.g. votes or date to refine weights in words/sentences.  
+
+Finally, we have to mention that the main problem we have face during this project has been the size of the data. We decided to do analysis over the `review` dataset. Although we have subset the database to only 2% of the businesses -resulting in a dataset of ~30k reviews instead of the 1.5M of the original dataset-; the execution time of functions for processing the whole dataset was *mesured in hours* which lead to a very simple pipeline.
+
+
+
+
+# Annex
+
+##JSON data structures. 
+
+Source: http://www.yelp.com/dataset_challenge
+
+```
+# business.json
+{
+    'type': 'business',
+    'business_id': (encrypted business id),
+    'name': (business name),
+    'neighborhoods': [(hood names)],
+    'full_address': (localized address),
+    'city': (city),
+    'state': (state),
+    'latitude': latitude,
+    'longitude': longitude,
+    'stars': (star rating, rounded to half-stars),
+    'review_count': review count,
+    'categories': [(localized category names)]
+    'open': True / False (corresponds to closed, not business hours),
+    'hours': {
+        (day_of_week): {
+            'open': (HH:MM),
+            'close': (HH:MM)
+        },
+        ...
+    },
+    'attributes': {
+        (attribute_name): (attribute_value),
+        ...
+    },
+}
+```
+
+```
+# review.json
+{
+    'type': 'review',
+    'business_id': (encrypted business id),
+    'user_id': (encrypted user id),
+    'stars': (star rating, rounded to half-stars),
+    'text': (review text),
+    'date': (date, formatted like '2012-03-14'),
+    'votes': {(vote type): (count)},
+}
+```
+
+```
+# user.json
+{
+    'type': 'user',
+    'user_id': (encrypted user id),
+    'name': (first name),
+    'review_count': (review count),
+    'average_stars': (floating point average, like 4.31),
+    'votes': {(vote type): (count)},
+    'friends': [(friend user_ids)],
+    'elite': [(years_elite)],
+    'yelping_since': (date, formatted like '2012-03'),
+    'compliments': {
+        (compliment_type): (num_compliments_of_this_type),
+        ...
+    },
+    'fans': (num_fans),
+}
+```
+
+```
+# checkin.json
+{
+    'type': 'checkin',
+    'business_id': (encrypted business id),
+    'checkin_info': {
+        '0-0': (number of checkins from 00:00 to 01:00 on all Sundays),
+        '1-0': (number of checkins from 01:00 to 02:00 on all Sundays),
+        ...
+        '14-4': (number of checkins from 14:00 to 15:00 on all Thursdays),
+        ...
+        '23-6': (number of checkins from 23:00 to 00:00 on all Saturdays)
+    }, # if there was no checkin for a hour-day block it will not be in the dict
+}
+```
+
+```
+# tip.json
+{
+    'type': 'tip',
+    'text': (tip text),
+    'business_id': (encrypted business id),
+    'user_id': (encrypted user id),
+    'date': (date, formatted like '2012-03-14'),
+    'likes': (count),
+}
+```
+
