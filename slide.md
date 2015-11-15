@@ -24,7 +24,7 @@ The Yelp company gathers reviews from users attending to restaurants, clinics an
 
 Each review contains a star rating that is given by a user to the rated business.
 
-![Shiny application](assets/yelp-logo.jpg)
+![Yelp Logo](assets/yelp-logo.jpg)
 
 # Project description
 
