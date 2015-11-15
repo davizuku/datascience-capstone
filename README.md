@@ -9,6 +9,11 @@ The appendix of the report is placed: https://github.com/davizuku/datascience-ca
 
 ## Slide deck
 
+### Slidify
 The slide deck for project presentation is: http://davizuku.github.io/datascience-capstone  
 And its source code is located here: https://github.com/davizuku/datascience-capstone/raw/gh-pages/slide.Rmd  
 
+
+### RStudio Presenter
+The slide deck for project presentation is: http://davizuku.github.io/datascience-capstone/slidedeck.html  
+And its source code is located here: https://github.com/davizuku/datascience-capstone/raw/gh-pages/slidedeck.Rpres  
