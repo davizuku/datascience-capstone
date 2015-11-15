@@ -1,0 +1,10 @@
+rsconnect
+.RData
+.Rhistory
+.cache
+appendix_cache
+project_cache
+project_files
+report_cache
+report_files
+libraries
