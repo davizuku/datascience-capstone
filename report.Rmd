@@ -1,7 +1,7 @@
 ---
 title: "Yelp Challenge Project - Review Rating Prediction"
 author: "David Álvarez Pons"
-output: html_document
+output: pdf_document
 ---
 ```{r global_options, include=FALSE}
 knitr::opts_chunk$set(
@@ -65,6 +65,10 @@ Since we want to predict the star rating of the reviews, let's have a look at th
 ```{r unlist_texts, eval=TRUE, echo=FALSE, cache=TRUE}
 texts <- unlist(review[,"text"])
 textLengths <- nchar(texts)
+```
+
+```{r unlist_stars, eval=TRUE, echo=FALSE, cache=TRUE}
+stars <- unlist(review[,"stars"])
 ```
 
 ```{r text_length-vs-star_rating, eval=TRUE, echo=FALSE, cache=TRUE, fig.width=6}
