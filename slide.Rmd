@@ -1,0 +1,146 @@
+---
+title       : Yelp Challenge Project
+subtitle    : Capstone Project - Coursera Data Science Specialization
+author      : David Álvarez
+job         : 
+framework   : impressjs        # {io2012, html5slides, shower, dzslides, ...}
+highlighter : highlight.js  # {highlight.js, prettify, highlight}
+hitheme     : tomorrow      # 
+widgets     : [mathjax, bootstrap]            # {mathjax, quiz, bootstrap}
+mode        : selfcontained # {standalone, draft}
+knit        : slidify::knit2slides
+--- 
+# Yelp Challenge Project
+## Review Rating Prediction
+Author: *David Álvarez*
+
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(
+    fig.width=3, 
+    fig.height=3, 
+    message=FALSE, 
+    warning=FALSE,
+    eval=FALSE
+)
+```
+
+--- .slide x:1000 y:0 scale: 1
+
+# Yelp Challenge data description
+
+The Yelp company gathers reviews from users attending to restaurants, clinics and other services.
+
+Each review contains a star rating that is given by a user to the rated business.
+
+![Shiny application](assets/yelp-logo.jpg)
+
+# Project description
+
+Can we predict the rating of a review looking at its text?
+
+We present the implementation of **a prediction function for star-rating based on machine learning**
+
+--- .slide x:1000 y:2000 scale:2
+# Exploratory analysis
+
+The data used for this project is available [here](https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/yelp_dataset_challenge_academic_dataset.zip):
+
+```{r reading_reviews, echo=FALSE, eval=TRUE, cache=TRUE}
+review <- readRDS("data/review.rds")
+```
+
+```{r ggplot2_library, eval=TRUE, echo=FALSE, message=FALSE, warning=FALSE}
+library(ggplot2)
+```
+
+```{r unlist_texts, eval=TRUE, echo=FALSE, cache=TRUE}
+texts <- unlist(review[,"text"])
+textLengths <- nchar(texts)
+```
+
+```{r unlist_stars, eval=TRUE, echo=FALSE, cache=TRUE}
+stars <- unlist(review[,"stars"])
+```
+
+```{r factorize, eval=TRUE, echo=FALSE, cache=TRUE}
+fs <- factor(stars)
+lt <- log(textLengths)
+```
+
+```{r text_length-vs-star_rating, eval=TRUE, echo=FALSE, cache=TRUE, fig.height=4, fig.align="center"}
+m <- qplot(fs, lt, geom = "boxplot", fill=fs)
+g <- m + labs(title = "Boxplot of text lengths vs star rates")
+g + xlab("Star Rate") + ylab("Length of text review")
+```
+
+```{r correlation_textlen-stars, eval=TRUE, cache=TRUE}
+ct <- cor.test(log(textLengths), stars)
+```
+
+Since the p-value of the correlation test is `r ct$p.value`, there is no relation between text length and rating. 
+
+--- .slide x:6000 y:6000 scale:5 rot:45
+# Prediction modelling
+
+1) Split texts into sentences.  
+
+2) Clean stopwords, numbers, punctuation, word sufixes and sort words without duplicates.  
+3) Count words + sentence rating:  
+
+```{r read_words, echo=FALSE, eval=TRUE, cache=TRUE}
+words <- readRDS("data/training_words.rds");
+```
+
+```{r words_semantic, eval=TRUE, echo=FALSE, cache=TRUE}
+rbind(
+    head(words[words$avg.stars > 1.00 & words$avg.stars < 1.2,], 2),
+    head(words[words$avg.stars > 4.2 & words$avg.stars < 5.0,], 2)
+)
+```
+
+4) Prediction of a sentence is a weighted sum: 
+
+$$predict(sent) \gets \frac{\sum_{w\in sent}w.count * w.avgStars}{\sum_{w \in sent} w.count}$$
+
+--- .slide x:4000 y:1500 scale:1 rot:200
+# Results and Discussion
+
+```{r get_normalized_reviews, echo=FALSE, results='hide', eval=TRUE, cache=TRUE}
+nsent <- readRDS("data/normalized.rds"); # Normalized Sentences
+```
+
+```{r caret_package, eval=TRUE, echo=FALSE}
+library(caret)
+```
+
+```{r data_partition, echo=FALSE, eval=TRUE, cache=TRUE}
+set.seed(4587);
+inTrain = createDataPartition(nsent$stars, p = 3/4)[[1]]
+training = nsent[ inTrain,]
+testing = nsent[-inTrain,]
+```
+
+```{r load_testing_predictions, echo=FALSE, eval=TRUE, cache=TRUE}
+preds <- readRDS("data/testing_predictions.rds");
+```
+
+```{r error_reporting, echo=FALSE, eval=TRUE, cache=TRUE}
+errors <- preds - as.numeric(testing$stars)
+rmse <- sqrt(sum(errors^2) / length(preds))
+```
+
+Predictions errors have $\mu$ = `r mean(errors)` and $\sigma$=`r sd(errors)`. 
+
+RSME is `r rmse`. 
+
+Prediction model tends to be *too optimistic*.
+
+```{r error_histogram, eval=TRUE, echo=FALSE, cache=TRUE, fig.height=4, fig.align="center"}
+m <- qplot(errors, geom="histogram", binwidth=0.7, fill=..count..)
+g <- m + labs(title = "Histogram of prediction - testing errors")
+g + scale_fill_gradient("count", low = "green", high = "red")
+```
+
+**Improvements**: gather sets of words or sentences, cross validation, `tm` package, etc.
+
+#### Further info, in https://github.com/davizuku/datascience-capstone
