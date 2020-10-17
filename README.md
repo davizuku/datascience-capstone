@@ -1,4 +1,4 @@
-#Data Science Capstone Project 
+# Data Science Capstone Project 
 Repository of the Yelp Challenge Project as the capstone project of the Data Science Specialization at Coursera. 
 
 ## Report 
